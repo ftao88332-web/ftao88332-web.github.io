@@ -1,0 +1,60 @@
+name: deploy root site
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-root.yml"
+
+concurrency:
+  group: pages-root
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      NEXT_PUBLIC_BASE_PATH: ""
+    steps:
+      - name: 取出站点源码（2kcn 仓库）
+        uses: actions/checkout@v4
+        with:
+          repository: ftao88332-web/2kcn
+          path: src
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/site/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+        working-directory: src/site
+
+      - name: 生成站点数据
+        run: python scripts/build_index.py
+        working-directory: src
+
+      - name: 保留线上行情快照
+        run: python scripts/keep_prices.py
+        working-directory: src
+
+      - name: 构建（根路径静态导出）
+        run: npm run build
+        working-directory: src/site
+
+      - name: 发布到 gh-pages
+        run: |
+          cd src/site/out
+          touch .nojekyll
+          printf '2kcardlab.top' > CNAME
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="github-actions[bot]@users.noreply.github.com" commit -q -m "publish: $(date -u +%F_%T)"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:gh-pages
